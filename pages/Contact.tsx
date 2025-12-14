@@ -1,20 +1,30 @@
 import React, { useState } from 'react';
-import { Mail, Phone, MessageSquare, MapPin, Copy, CheckCircle2 } from 'lucide-react';
+import { Mail, Phone, MessageSquare, MapPin, CheckCircle2, Send, AlertCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const Contact: React.FC = () => {
-  const [formData, setFormData] = useState({
-    brandName: '',
-    contactName: '',
-    phone: '',
-    email: '',
-    services: [] as string[],
-    marketStatus: '진입 전',
-    budget: '',
-    message: '',
-    agree: false
-  });
+  // 초기 데이터 상수화
+  const initialFormData = {
+    brandName: '',    // 회사/브랜드명
+    contactName: '',  // 담당자 성함
+    phone: '',        // 연락처
+    email: '',        // 이메일
+    services: [] as string[], // 관심 분야
+    marketStatus: '진입 전',  // 진출 단계
+    budget: '',       // 예산
+    message: '',      // 문의 내용
+    agree: false      // 개인정보 동의
+  };
+
+  // 1. 입력된 내용을 저장하는 공간
+  const [formData, setFormData] = useState(initialFormData);
   
-  const [showGuide, setShowGuide] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false); // 전송 중 상태
+  const [isSuccess, setIsSuccess] = useState(false);       // 전송 성공 여부
+  const [errorMessage, setErrorMessage] = useState('');    // 에러 메시지 저장
+
+  // ▼▼▼ Formspree 주소 확인 (본인의 ID가 맞는지 꼭 확인하세요!) ▼▼▼
+  const FORMSPREE_ENDPOINT = "https://formspree.io/f/xzznwrnj";
 
   const serviceOptions = [
     '온라인 리뷰 & 체험단', 
@@ -40,43 +50,79 @@ const Contact: React.FC = () => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleKakaoSubmit = async (e: React.FormEvent) => {
+  // 새로운 문의 작성하기 (초기화 함수)
+  const handleReset = () => {
+    setFormData(initialFormData);
+    setIsSuccess(false);
+    setErrorMessage('');
+    window.scrollTo(0, 0);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(''); // 기존 에러 메시지 초기화
+    
     if (!formData.agree) {
-      alert('개인정보 수집 및 이용에 동의해주세요.');
+      setErrorMessage('개인정보 수집 및 이용에 동의해주세요.');
       return;
     }
 
-    // Construct the message
-    const message = `[Vietnam On-Line Lab 상담 신청]
+    // 이메일 공백 제거 및 유효성 검사 강화
+    const cleanEmail = formData.email.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-■ 브랜드/기업명: ${formData.brandName}
-■ 담당자: ${formData.contactName}
-■ 연락처: ${formData.phone}
-■ 이메일: ${formData.email}
-■ 진출현황: ${formData.marketStatus}
-■ 예산범위: ${formData.budget}
-■ 관심분야: ${formData.services.join(', ')}
+    if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+      setErrorMessage('이메일 주소 형식이 올바르지 않습니다. (예: user@example.com)');
+      return;
+    }
 
-■ 문의내용:
-${formData.message}`;
+    setIsSubmitting(true);
 
     try {
-      // Copy to clipboard
-      await navigator.clipboard.writeText(message);
-      
-      // Show success state
-      setShowGuide(true);
-      
-      // Alert and open window
-      alert('문의 내용이 클립보드에 복사되었습니다.\n잠시 후 열리는 카카오톡 창에 붙여넣기(Ctrl+V) 해주세요.');
-      window.open('http://pf.kakao.com/_YfxiUn/chat', '_blank');
-      
-    } catch (err) {
-      console.error('Clipboard failed', err);
-      // Fallback just in case clipboard fails
-      setShowGuide(true);
-      window.open('http://pf.kakao.com/_YfxiUn/chat', '_blank');
+      const response = await fetch(FORMSPREE_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          // 폼 데이터 (중요: email 필드가 덮어씌워지도록 순서 배치)
+          ...formData,
+          email: cleanEmail, // 공백 제거된 이메일 사용
+          // 배열을 문자열로 변환
+          services: formData.services.join(', '),
+          // 이메일 제목 설정
+          _subject: `[VOL 문의] ${formData.brandName} - ${formData.contactName}님`
+          // _replyto 제거 (email 필드로 충분함)
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // 성공 시
+        setIsSuccess(true);
+        window.scrollTo(0, 0);
+      } else {
+        // 실패 시 에러 메시지 처리
+        if (data.errors && data.errors.length > 0) {
+          // 영문 에러 메시지를 한글로 변환해서 보여줌
+          const translatedErrors = data.errors.map((err: any) => {
+            if (err.message && err.message.includes("should be an email")) {
+               return "이메일 주소를 정확히 입력해주세요.";
+            }
+            return err.message;
+          }).join(", ");
+          setErrorMessage(`전송 실패: ${translatedErrors}`);
+        } else {
+          setErrorMessage('전송에 실패했습니다. 입력하신 정보를 다시 확인해주세요.');
+        }
+      }
+    } catch (error) {
+      console.error("Submission error:", error);
+      setErrorMessage('서버 연결 오류가 발생했습니다. 잠시 후 다시 시도하거나 이메일로 직접 연락주세요.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -87,12 +133,12 @@ ${formData.message}`;
           <h1 className="text-4xl md:text-5xl font-black text-slate-900 mb-8">문의하기</h1>
           <p className="text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
             베트남 온라인 진출에 관한 무엇이든 물어보세요.<br/>
-            가장 빠르고 정확한 카카오톡 상담으로 연결됩니다.
+            담당자가 내용을 확인 후 빠르면 1일 이내에 연락드립니다.
           </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-          {/* Info Side */}
+          {/* Contact Info Side */}
           <div className="lg:col-span-1 bg-slate-900 p-10 rounded-2xl text-white h-fit shadow-xl">
             <h2 className="text-2xl font-bold mb-10">Contact Info</h2>
             <div className="space-y-10">
@@ -144,64 +190,63 @@ ${formData.message}`;
 
           {/* Form Side */}
           <div className="lg:col-span-2 bg-white p-8 md:p-12 rounded-2xl shadow-sm border border-slate-200">
-            {showGuide ? (
+            {isSuccess ? (
+              // 성공 화면
               <div className="h-full flex flex-col items-center justify-center text-center py-20 animate-in fade-in duration-500">
-                <div className="w-24 h-24 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center mb-10">
-                  <MessageSquare size={48} fill="currentColor" />
+                <div className="w-24 h-24 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-10">
+                  <CheckCircle2 size={48} />
                 </div>
-                <h2 className="text-3xl font-bold text-slate-900 mb-8">카카오톡 상담창이 열렸습니다.</h2>
+                <h2 className="text-3xl font-bold text-slate-900 mb-6">문의가 성공적으로 접수되었습니다.</h2>
                 
-                <div className="bg-slate-50 border border-slate-200 p-10 rounded-2xl max-w-xl w-full mb-10">
-                  <p className="text-xl text-slate-700 font-medium mb-5">
-                    <span className="text-green-600 font-bold flex items-center justify-center gap-3 mb-3">
-                      <CheckCircle2 size={28} /> 문의 내용 복사 완료!
-                    </span>
-                  </p>
-                  <p className="text-lg text-slate-600 leading-relaxed">
-                    열려있는 카카오톡 채팅창 입력칸에<br/>
-                    <strong className="text-slate-900 bg-yellow-100 px-2">붙여넣기 (Ctrl + V)</strong> 하시면<br/>
-                    작성하신 내용이 바로 전송됩니다.
-                  </p>
-                </div>
+                <p className="text-xl text-slate-600 leading-relaxed mb-10">
+                  담당자가 내용을 확인 후<br/>
+                  입력해주신 연락처 또는 이메일로 빠르게 답변드리겠습니다.
+                </p>
 
-                <div className="flex flex-col gap-4">
-                  <a 
-                    href="http://pf.kakao.com/_YfxiUn/chat" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="px-10 py-4 bg-[#FEE500] hover:bg-[#FDD835] text-[#3c1e1e] font-bold rounded-lg transition-colors flex items-center justify-center gap-3 text-lg"
-                  >
-                    <MessageSquare size={22} fill="currentColor" />
-                    카카오톡 창 다시 열기
-                  </a>
+                <div className="flex flex-col gap-4 w-full max-w-sm">
                   <button 
-                    onClick={() => setShowGuide(false)}
-                    className="px-10 py-4 text-slate-500 hover:text-slate-800 font-medium transition-colors text-lg"
+                    onClick={handleReset} // 수정됨: 새로고침 대신 초기화 함수 호출
+                    className="px-8 py-4 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors text-lg"
                   >
-                    작성 화면으로 돌아가기
+                    새로운 문의 작성하기
                   </button>
+                  <Link 
+                    to="/"
+                    className="px-8 py-4 border border-slate-300 text-slate-600 font-bold rounded-lg hover:bg-slate-50 transition-colors text-lg flex justify-center items-center"
+                  >
+                    메인으로 돌아가기
+                  </Link>
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleKakaoSubmit} className="space-y-10">
+              // 입력 폼 화면
+              <form onSubmit={handleSubmit} className="space-y-10">
                 <div className="bg-orange-50 border border-orange-100 p-6 rounded-xl mb-8 flex items-start gap-4">
                   <div className="bg-white p-2 rounded-full shadow-sm text-orange-600 mt-1">
-                    <MessageSquare size={20} fill="currentColor" />
+                    <Send size={20} fill="currentColor" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-slate-900 text-lg mb-2">빠르고 확실한 카카오톡 상담</h4>
+                    <h4 className="font-bold text-slate-900 text-lg mb-2">간편 상담 신청</h4>
                     <p className="text-base text-slate-600 leading-snug">
-                      아래 내용을 작성하고 신청 버튼을 누르면, <strong>내용이 자동으로 복사</strong>되고 카카오톡 상담창이 열립니다.
+                      아래 내용을 작성해주시면 담당자 이메일로 즉시 전송됩니다.
                     </p>
                   </div>
                 </div>
+
+                {/* 에러 메시지 표시 영역 */}
+                {errorMessage && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-lg flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+                    <AlertCircle className="shrink-0 mt-0.5" size={20} />
+                    <p className="font-medium">{errorMessage}</p>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                   <div>
                     <label className="block text-lg font-bold text-slate-700 mb-3">회사/브랜드명</label>
                     <input 
                       type="text" 
-                      name="brandName" 
+                      name="brandName"
                       required
                       value={formData.brandName}
                       onChange={handleChange}
@@ -245,7 +290,7 @@ ${formData.message}`;
                       value={formData.email}
                       onChange={handleChange}
                       className="w-full px-5 py-4 text-lg rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none transition-all placeholder:text-slate-400"
-                      placeholder="email@company.com"
+                      placeholder="답변 받으실 이메일"
                     />
                   </div>
                 </div>
@@ -326,14 +371,33 @@ ${formData.message}`;
                   </label>
                 </div>
 
-                <button 
-                  type="submit" 
-                  className="w-full py-6 bg-[#FEE500] hover:bg-[#FDD835] text-[#3c1e1e] font-black text-xl rounded-xl transition-all shadow-lg hover:shadow-xl flex justify-center items-center gap-3"
-                >
-                  <MessageSquare size={24} fill="currentColor" />
-                  카카오톡으로 상담 신청하기
-                  <span className="text-base font-medium opacity-80">(내용 자동 복사)</span>
-                </button>
+                <div className="space-y-4">
+                  <button 
+                    type="submit" 
+                    disabled={isSubmitting}
+                    className={`w-full py-6 font-black text-xl rounded-xl transition-all shadow-lg flex justify-center items-center gap-3 ${
+                      isSubmitting 
+                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                        : 'bg-orange-600 hover:bg-orange-700 text-white hover:shadow-xl'
+                    }`}
+                  >
+                    {isSubmitting ? (
+                      '전송 중입니다...'
+                    ) : (
+                      <>
+                        <Send size={24} />
+                        문의 메일 보내기
+                      </>
+                    )}
+                  </button>
+                  
+                  {/* 에러 발생 시 버튼 하단에도 메시지 표시 */}
+                  {errorMessage && (
+                    <p className="text-red-600 text-center font-bold animate-pulse">
+                      ※ {errorMessage}
+                    </p>
+                  )}
+                </div>
               </form>
             )}
           </div>
