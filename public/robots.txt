@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://vietnam-online-lab.com/sitemap.xml
